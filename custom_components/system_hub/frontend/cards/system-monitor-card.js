@@ -2816,29 +2816,39 @@ const BASE_STYLE = `
      from 0 (flex-basis 0): the pill keeps its whole text while the title can still give way, down to a few letters
      (then an ellipsis); only then is the pill cut, and on a narrow header it shows its dot only (its text stays in
      title and aria-label). The buttons never shrink. */
-  .title-row { display: flex; align-items: center; gap: 8px; }
-  .title-row > .name { flex: 1 1 0; min-width: min(6.5ch, 100%); }
   .name { font-size: 16px; font-weight: 500; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sub { font-size: 12px; color: var(--secondary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* Round icon of the showcase site, tinted with the status colour like the pill. */
   .logo { flex: none; border-radius: 50%; display: grid; place-items: center;
           background: color-mix(in srgb, var(--c, var(--sm-ok)) 16%, transparent); }
   .logo .icon { width: 24px; height: 24px; fill: currentColor; color: var(--c, var(--sm-ok)); }
-  .title-row > .chip { flex: 0 1 auto; min-width: 0; white-space: nowrap; }
-  .title-row > .chip > .chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  @container sm-header (max-width: 180px) {
-    .title-row > .chip { padding: 4px; }
-    .title-row > .chip > .chip-text { display: none; }
-  }
+  /* The status pill: on the title row, 8 px after the title, only when the whole title and the pill's whole label fit
+     there; otherwise on its own line under the subtitle, which then keeps one line; its dot alone at 200 px or less
+     or when its label does not fit the title block (its text stays in its title and for screen readers). Measured
+     after each render (_fitPill), in every language, never by a fixed width. */
+  .title-row { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-width: 0; }
+  .title-row > .name { flex: 0 1 auto; min-width: 0; }
+  .title-row > .chip { flex: none; min-width: auto; max-width: none; overflow: visible; align-self: center; margin-top: 0; }
+  .title-row > .chip .chip-text { min-width: auto; overflow: visible; white-space: nowrap; display: inline; -webkit-line-clamp: none; line-clamp: none; }
+  .titles.pill-below { display: flex; flex-direction: column; align-items: stretch; }
+  .titles.pill-below > * { order: 3; }
+  .titles.pill-below > .title-row { display: contents; }
+  .titles.pill-below > .sub { order: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .titles.pill-below > .title-row > .chip { order: 2; align-self: flex-start; margin-top: 2px; }
+  .titles.pill-dot > .title-row > .chip { padding: 4px; gap: 0; }
+  .titles.pill-dot > .title-row > .chip .dot { display: block; }
+  .titles.pill-dot > .title-row > .chip .chip-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   /* Under the cards' minimum width (6 columns of a 320 px screen, 132 px inside the header), as in a flex row of two
      cards: the logo gives its room, so that the title keeps 4 letters and the zoom button stays inside. */
   @container sm-header (max-width: 131px) {
     .header .logo { display: none; }
   }
   .warning { padding: 16px; color: color-mix(in srgb, var(--sm-warn) 45%, var(--primary-text-color)); }
-  /* Zoom button of the mini card: rightmost in the header, 8 px from the card's right edge. */
-  .zoom { all: unset; flex: none; cursor: pointer; width: 24px; height: 24px; margin: -4px -4px -4px 0; border-radius: 50%;
-          display: grid; place-items: center; color: var(--secondary-text-color); }
+  /* Zoom button of the mini card: in the card's top right corner (24 px, round); the header keeps clear of it. */
+  .zoom { all: unset; position: absolute; z-index: 2; top: 5px; right: 5px; cursor: pointer; width: 24px; height: 24px; border-radius: 50%;
+          display: grid; place-items: center; color: var(--secondary-text-color);
+          background: color-mix(in srgb, var(--secondary-text-color) 10%, transparent); }
+  .header:has(> .zoom) { padding-right: 38px; }
   .zoom .icon { width: 16px; height: 16px; }
   .zoom:hover { background: color-mix(in srgb, var(--secondary-text-color) 16%, transparent); color: var(--primary-text-color); }
   .zoom:focus-visible { outline: 2px solid var(--sm-focus); outline-offset: 1px; }
@@ -2882,6 +2892,9 @@ function spark(points, end, max) {
 /** Time of a recorder statistics row in ms: a number (Home Assistant 2023.3 and later) or an ISO date string. */
 const statTime = (p) => (typeof p.start === "number" ? p.start : Date.parse(p.start));
 
+// The parts of the header that hold the status pill (see _fitPill).
+const SM_PILL = { block: ".titles", row: ".title-row", name: ".name", chip: ".chip", sub: ".sub" };
+
 class SystemMonitorBase extends HTMLElement {
   constructor() {
     super();
@@ -2916,6 +2929,7 @@ class SystemMonitorBase extends HTMLElement {
     // The uptime and the relative times ("2 minutes ago") depend on the current minute: without a
     // state change, `set hass` doesn't come, so check the render signature (it includes the minute).
     this._minuteTimer = setInterval(() => this._maybeRender(), 30 * 1000);
+    this._watchPill();
     // A tap or click elsewhere on the page folds the processes list (as in ha-carburants-france), unless a process is
     // stopped. On the release, not the press: folding on press would shift the layout under the pointer.
     this._outside ??= watchOutside(this, () => {
@@ -2926,7 +2940,55 @@ class SystemMonitorBase extends HTMLElement {
     this._outside.on();
   }
 
+  // The status pill goes on the title row, right after the title, only when the whole title and the pill's whole
+  // label fit there; otherwise it takes its own line under the subtitle (the subtitle then on one line). Its dot
+  // alone on a card 200 px wide or less, or when its label is wider than the title block (or, in a banner, would not
+  // fit above the ground strip). Measured after each render and on every new width (or once the web font is loaded),
+  // never by a fixed width; $SM_PILL names the parts.
+  _fitPill() {
+    const S = SM_PILL;
+    for (const t of this.shadowRoot?.querySelectorAll?.(S.block) || []) {
+      const row = [...(t.children || [])].find((n) => n.matches?.(S.row));
+      const name = row && [...row.children].find((n) => n.matches?.(S.name));
+      const chips = row ? [...row.children].filter((n) => n.matches?.(S.chip)) : [];
+      if (!name?.getBoundingClientRect || !chips.length) continue;
+      t.classList.remove("pill-below", "pill-dot");
+      if (this.getBoundingClientRect().width <= 200) t.classList.add("pill-dot");
+      // The title's whole width (scrollWidth is rounded: 1 px more, so that a title that fits is never cut).
+      const need = chips.reduce((w, c) => w + 8 + c.getBoundingClientRect().width, name.scrollWidth + 1);
+      if (need <= row.getBoundingClientRect().width + 0.5) continue;
+      t.classList.add("pill-below");
+      const box = t.closest(".banner")?.getBoundingClientRect();
+      const right = t.getBoundingClientRect().right;
+      const out = [name, ...chips, ...[...t.children].filter((n) => n.matches?.(S.sub))].some((n) => {
+        const r = n.getBoundingClientRect();
+        return r.height > 0 && (r.right > right + 0.5 || (box && (r.top < box.top - 0.5 || r.bottom > box.bottom - 10.5)));
+      });
+      if (out) t.classList.add("pill-dot");
+    }
+  }
+
+  // Fitted again on a new width, a new content (a render) and once the web font is loaded, in the next frame.
+  _watchPill() {
+    if (this._pillWatch || typeof ResizeObserver !== "function") return;
+    const fit = () => {
+      cancelAnimationFrame(this._pillFrame);
+      this._pillFrame = requestAnimationFrame(() => this._fitPill());
+    };
+    this._pillWatch = [new ResizeObserver(fit), typeof MutationObserver === "function" ? new MutationObserver(fit) : null];
+    this._pillWatch[0].observe(this);
+    if (this.shadowRoot) this._pillWatch[1]?.observe(this.shadowRoot, { childList: true, subtree: true, characterData: true });
+    document.fonts?.ready?.then(fit);
+    fit();
+  }
+
+  _unwatchPill() {
+    for (const o of this._pillWatch || []) o?.disconnect();
+    this._pillWatch = null;
+  }
+
   disconnectedCallback() {
+    this._unwatchPill();
     clearInterval(this._minuteTimer);
     this._outside?.off();
     this._dropPress();
@@ -3074,7 +3136,10 @@ class SystemMonitorBase extends HTMLElement {
     // A subclass may tint it red instead (the compact view of the mini card, while a process is stopped).
     const iconCls = this._logoAlert(sm) ? "crit" : pending ? "warn" : unknown ? "muted" : "good";
     let chip;
-    if (pending) {
+    // The icon red for stopped processes (compact mini card): the pill says so, in the same colour.
+    const stopped = iconCls === "crit" ? this._stopped(sm) : [];
+    if (stopped.length) chip = pill("clickable crit", stopped[0], this._t(stopped.length === 1 ? "st_stopped_one" : "st_stopped").replace("{n}", stopped.length));
+    else if (pending) {
       const text = `${this._t("update")} ${pending.attributes.latest_version || ""}`.trim();
       chip = pill("clickable warn", pending.entity_id, text);
     } else if (unknown) chip = pill("clickable muted", unknown.entity_id, this._t("st_unknown"));
@@ -3084,7 +3149,7 @@ class SystemMonitorBase extends HTMLElement {
         <span class="logo ${iconCls}" aria-hidden="true">${svgIcon(ICONS.monitor_dashboard)}</span>
         <div class="titles">
           <div class="title-row"><div class="name">${esc(c.title || "Home Assistant")}</div>${chip}</div>
-          <div class="sub">${esc(sub)}</div>
+          <div class="sub" title="${esc(sub)}">${esc(sub)}</div>
         </div>
         ${aside}
       </div>`;
@@ -3760,8 +3825,6 @@ const NET_STYLE = `
 const MINI_STYLE = `
   /* The full card's logo size: the compact view does not shrink it. */
   .logo { height: 40px; width: 40px; align-self: flex-start; }
-  /* The status shows in the footer. */
-  .title-row > .chip { display: none; }
   .name { font-size: 16px; }
   /* One grid for every metric: the label column widens for the longest label (Datenträger), the same for all rows.
      At phone width (6 columns of a 320 px screen, 132 px inside) the gaps and the label give way (ellipsis), the bar

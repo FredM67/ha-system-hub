@@ -912,30 +912,23 @@ const keydown = (key, shiftKey = false) => {
   return ev;
 };
 
-test('header: short of room, the pill goes whole under the title instead of being cut', () => {
-  // The title, the notify button and the pill share a wrapping block: the title takes what is left on the line (it
-  // does not claim its whole text first), keeping a few letters; the pill keeps its whole text and goes to the next
-  // line when it does not fit beside them.
+test('header: the title and its pill on a measured title row, then the notify button', () => {
+  // The pill beside the whole title, else under it, its dot when narrow: measured (test/pill-fit.test.mjs).
   const main = rule('.main');
-  for (const decl of ['flex: 1 1 0', 'min-width: 0', 'display: flex', 'flex-wrap: wrap']) assert.ok(main.includes(decl), `.main: ${decl}`);
-  const title = rule('.title');
-  assert.match(title, /flex: 1 1 0;/);
-  assert.match(title, /min-width: min\(100%, [4-9](\.\d+)?ch\)/);
-  assert.match(title, /text-overflow: ellipsis/);
-  const pill = rule('.pill');
-  for (const decl of ['flex: 0 1 auto', 'min-width: 0', 'max-width: 100%']) assert.ok(pill.includes(decl), `.pill: ${decl}`);
-  // Never cut: no ellipsis, no single line forced, no half-width cap, no dot-only mode.
-  assert.doesNotMatch(pill, /white-space: nowrap|max-width: 50%/);
-  assert.doesNotMatch(rule('.pt'), /text-overflow|clip/);
-  assert.doesNotMatch(allStyles(), /\.pill::before|\.pt \{[^}]*position: absolute/);
+  for (const decl of ['flex: 1 1 0', 'min-width: 0', 'display: flex']) assert.ok(main.includes(decl), `.main: ${decl}`);
+  assert.match(rule('.title'), /text-overflow: ellipsis/);
+  assert.match(rule('.mt'), /flex: 1 1 0/);
+  assert.doesNotMatch(rule('.pt'), /text-overflow/);
+  // A dot in the status colour before the text.
+  assert.match(rule('.pill::before'), /background: var\(--c\)/);
   // The icon buttons never shrink.
   for (const button of ['.notify', '.full', '.close']) assert.match(rule(button), /flex: none/, button);
   // The card and the full screen use the same block, the pill after the title.
   const card = makeCard({ notify_button: true });
   card.hass = hassWith(registry(), { [SENSOR]: realState });
-  assert.match(html(card), /<div class="main"><div class="title">[^<]+<\/div>(<button class="notify"[^>]*><ha-icon[^>]*><\/ha-icon><\/button>)?<div class="pill"/);
+  assert.match(html(card), /<div class="main"><div class="mt"><div class="title-row"><div class="title">[^<]+<\/div><div class="pill"[^>]*><span class="pt">[^<]+<\/span><\/div><\/div><\/div>(<button class="notify")?/);
   card._openPopup();
-  assert.match(popupRoot().innerHTML, /<div class="main"><div class="title">[^<]+<\/div>(<button class="notify"[^>]*><ha-icon[^>]*><\/ha-icon><\/button>)?<div class="pill"/);
+  assert.match(popupRoot().innerHTML, /<div class="main"><div class="mt"><div class="title-row"><div class="title">[^<]+<\/div><div class="pill"[^>]*><span class="pt">[^<]+<\/span><\/div><\/div><\/div>(<button class="notify")?/);
   card._closePopup();
 });
 

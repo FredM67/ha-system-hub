@@ -4,7 +4,7 @@
  * Served and added to the dashboard resources by System Hub; the card types are those of Battery Monitor, so its
  * dashboards keep working. https://github.com/juju35/ha-system-hub
  */
-var BATTERY_MONITOR_CARD_VERSION = '2.7.1';
+var BATTERY_MONITOR_CARD_VERSION = '2.10.0';
 
 const BM_I18N = {
   en: {
@@ -1808,6 +1808,9 @@ const bmFindButton = (registry, entity) => {
     : undefined;
 };
 
+// The parts of the header that hold the status pill (see _fitPill).
+const BM_PILL = { block: '.mt', row: '.title-row', name: '.title', chip: '.pill', sub: '.sub' };
+
 class BatteryMonitorCard extends HTMLElement {
   static getConfigElement() {
     return document.createElement('sh-batteries-card-editor');
@@ -1829,7 +1832,55 @@ class BatteryMonitorCard extends HTMLElement {
     this._render();
   }
 
+  // The status pill goes on the title row, right after the title, only when the whole title and the pill's whole
+  // label fit there; otherwise it takes its own line under the subtitle (the subtitle then on one line). Its dot
+  // alone on a card 200 px wide or less, or when its label is wider than the title block (or, in a banner, would not
+  // fit above the ground strip). Measured after each render and on every new width (or once the web font is loaded),
+  // never by a fixed width; $BM_PILL names the parts.
+  _fitPill() {
+    const S = BM_PILL;
+    for (const t of this.shadowRoot?.querySelectorAll?.(S.block) || []) {
+      const row = [...(t.children || [])].find((n) => n.matches?.(S.row));
+      const name = row && [...row.children].find((n) => n.matches?.(S.name));
+      const chips = row ? [...row.children].filter((n) => n.matches?.(S.chip)) : [];
+      if (!name?.getBoundingClientRect || !chips.length) continue;
+      t.classList.remove("pill-below", "pill-dot");
+      if (this.getBoundingClientRect().width <= 200) t.classList.add("pill-dot");
+      // The title's whole width (scrollWidth is rounded: 1 px more, so that a title that fits is never cut).
+      const need = chips.reduce((w, c) => w + 8 + c.getBoundingClientRect().width, name.scrollWidth + 1);
+      if (need <= row.getBoundingClientRect().width + 0.5) continue;
+      t.classList.add("pill-below");
+      const box = t.closest(".banner")?.getBoundingClientRect();
+      const right = t.getBoundingClientRect().right;
+      const out = [name, ...chips, ...[...t.children].filter((n) => n.matches?.(S.sub))].some((n) => {
+        const r = n.getBoundingClientRect();
+        return r.height > 0 && (r.right > right + 0.5 || (box && (r.top < box.top - 0.5 || r.bottom > box.bottom - 10.5)));
+      });
+      if (out) t.classList.add("pill-dot");
+    }
+  }
+
+  // Fitted again on a new width, a new content (a render) and once the web font is loaded, in the next frame.
+  _watchPill() {
+    if (this._pillWatch || typeof ResizeObserver !== "function") return;
+    const fit = () => {
+      cancelAnimationFrame(this._pillFrame);
+      this._pillFrame = requestAnimationFrame(() => this._fitPill());
+    };
+    this._pillWatch = [new ResizeObserver(fit), typeof MutationObserver === "function" ? new MutationObserver(fit) : null];
+    this._pillWatch[0].observe(this);
+    if (this.shadowRoot) this._pillWatch[1]?.observe(this.shadowRoot, { childList: true, subtree: true, characterData: true });
+    document.fonts?.ready?.then(fit);
+    fit();
+  }
+
+  _unwatchPill() {
+    for (const o of this._pillWatch || []) o?.disconnect();
+    this._pillWatch = null;
+  }
+
   set hass(hass) {
+    this._watchPill();
     const old = this._hass;
     this._hass = hass;
     // Cheap short-circuit before rebuilding the whole signature: the sensor's state object, the registries (areas: room icons),
@@ -2038,10 +2089,10 @@ class BatteryMonitorCard extends HTMLElement {
     return counts.length ? counts.join(' · ') : this._t(all.length ? 'all_ok' : 'no_batteries');
   }
 
-  // The title, the "Notify now" button and the status pill, in a block of their own between the badge and the full
-  // screen (or close) button: short of room on one line, the pill goes under the title, whole, rather than being cut.
+  // The title and the status pill (see _fitPill), then the "Notify now" button, in a block of their own between the
+  // badge and the full screen (or close) button.
   _headMain(title, status) {
-    return `<div class="main"><div class="title">${bmEsc(title)}</div>${this._notifyButton()}${this._pill(status)}</div>`;
+    return `<div class="main"><div class="mt"><div class="title-row"><div class="title">${bmEsc(title)}</div>${this._pill(status)}</div></div>${this._notifyButton()}</div>`;
   }
 
   // The status pill: its whole text, on its own line under the title when the header is short of room.
@@ -2516,19 +2567,39 @@ class BatteryMonitorCard extends HTMLElement {
       ha-card.lvl-warn  { --c: var(--bm-warn); --ct: var(--bm-warn-text); }
       ha-card.lvl-alert { --c: var(--bm-alert); --ct: var(--bm-alert-text); }
 
-      /* Short of room on one line, the pill goes under the title (its text wrapping if it is longer than the line);
-         the title keeps a few letters, the icon buttons never shrink. */
+      /* The title and its pill take the room left; the icon buttons never shrink. */
       .head { display: flex; align-items: center; gap: 10px; min-width: 0; }
-      .main { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+      .main { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 4px 10px; }
+      .mt { flex: 1 1 0; min-width: 0; }
       .badge { flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
                background: color-mix(in srgb, var(--c) 16%, transparent); color: var(--c); }
       .badge ha-icon { --mdc-icon-size: 24px; }
-      .title { flex: 1 1 0; min-width: min(100%, 8ch); font-size: 16px; font-weight: 500; color: var(--primary-text-color);
+      .title { flex: 0 1 auto; min-width: min(100%, 8ch); font-size: 16px; font-weight: 500; color: var(--primary-text-color);
                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .pill { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow-wrap: anywhere;
               box-sizing: border-box; font-size: 11px; font-weight: 500; padding: 1px 8px; border-radius: 9px;
               color: var(--ct); background: color-mix(in srgb, var(--c) 14%, transparent); }
       .pt { display: block; }
+      /* The pill right after the title, a dot in the status colour before its text. */
+      .pill { display: inline-flex; align-items: center; gap: 4px; }
+      .pill::before { content: ''; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--c); }
+      .pill .pt { min-width: 0; }
+      /* The status pill: on the title row, 8 px after the title, only when the whole title and the pill's whole label fit
+         there; otherwise on its own line under the subtitle, which then keeps one line; its dot alone at 200 px or less
+         or when its label does not fit the title block (its text stays in its title and for screen readers). Measured
+         after each render (_fitPill), in every language, never by a fixed width. */
+      .title-row { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-width: 0; }
+      .title-row > .title { flex: 0 1 auto; min-width: 0; }
+      .title-row > .pill { flex: none; min-width: auto; max-width: none; overflow: visible; align-self: center; margin-top: 0; }
+      .title-row > .pill .pt { min-width: auto; overflow: visible; white-space: nowrap; display: inline; -webkit-line-clamp: none; line-clamp: none; }
+      .mt.pill-below { display: flex; flex-direction: column; align-items: stretch; }
+      .mt.pill-below > * { order: 3; }
+      .mt.pill-below > .title-row { display: contents; }
+      .mt.pill-below > .sub { order: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .mt.pill-below > .title-row > .pill { order: 2; align-self: flex-start; margin-top: 2px; }
+      .mt.pill-dot > .title-row > .pill { padding: 4px; gap: 0; }
+      .mt.pill-dot > .title-row > .pill .dot { display: block; }
+      .mt.pill-dot > .title-row > .pill .pt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
       .notify { all: unset; cursor: pointer; flex: none; width: 26px; height: 26px; border-radius: 50%;
                 display: grid; place-items: center; color: var(--secondary-text-color); }
       .notify:hover { background: color-mix(in srgb, var(--secondary-text-color) 14%, transparent); }
@@ -2553,6 +2624,18 @@ class BatteryMonitorCard extends HTMLElement {
       .zoom ha-icon { --mdc-icon-size: 16px; }
       /* The header icon of the mini card keeps the full card's size (40px), even narrow. */
       ha-card.mini .badge { display: grid; width: 40px; height: 40px; }
+      /* Mini card: the expand / collapse button in the card's top right corner (24 px, round), the header's other
+         buttons (full screen, notify now) on the same top line at its left; the header keeps clear of them. */
+      ha-card:has(.zoom) { position: relative; }
+      .head:has(> .zoom) { padding-right: 21px; }
+      .head:has(> .zoom):has(.full, .notify) { padding-right: 49px; }
+      .head:has(> .zoom):has(> .full):has(.notify) { padding-right: 77px; }
+      .head > .zoom, .head:has(> .zoom) .full, .head:has(> .zoom) .notify {
+        position: absolute; z-index: 2; top: 5px; width: 24px; height: 24px; margin: 0;
+        background: color-mix(in srgb, var(--secondary-text-color) 10%, transparent); }
+      .head > .zoom { right: 5px; }
+      .head:has(> .zoom) .full, .head:has(> .zoom):not(:has(> .full)) .notify { right: 33px; }
+      .head:has(> .zoom):has(> .full) .notify { right: 61px; }
       ha-card.mini .badge ha-icon { --mdc-icon-size: 24px; }
 
       /* Up to --cols columns, each at least 160px wide (or the whole card, if narrower): fewer columns when they do not fit */
@@ -2608,7 +2691,7 @@ class BatteryMonitorCard extends HTMLElement {
       @keyframes bm-blink { 0%, 100% { opacity: 1 } 50% { opacity: .35 } }
       @keyframes bm-spin { to { transform: rotate(360deg) } }
       @media (prefers-reduced-motion: reduce) { .row.due .ic, .notify[data-state='busy'] ha-icon { animation: none; } }
-      :host([hide-title]) .main > .title { visibility: hidden; }
+      :host([hide-title]) .main .title { visibility: hidden; }
     `;
   }
 
