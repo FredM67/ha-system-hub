@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.11.0 - 2026-11-18
+
+### Features
+- **Illustrated header on every module card**, as on the Status cards: the Watchdog, Batteries, Marketplace, System Monitor, Git Sync, Orphans and Automations cards (and their mini cards) open on a 90 px header with a small animated scene of their own, drawn like the Status one — the main piece in the colour of the card's status (the shield, the battery, the store, the gauge, the branch head, the puzzle, the robot) with what it watches around it on dashed links (integrations being reloaded, the other batteries, updates, CPU and charts, commits, loose entities, triggers and actions), over the concrete floor; the top right corner stays clear for the header's buttons (check now, notify, details, zoom…), which become small frosted buttons. Night with a dark Home Assistant theme; `illustration_theme: day | night` forces it, `illustration: false` keeps the classic header. Both options are in each card's visual editor (labels from the integration's translations, in every language). Reduced motion stops the animations.
+
 ## 2.10.4 - 2026-11-18
 
 ### Fixes
