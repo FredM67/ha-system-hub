@@ -7,7 +7,7 @@
 // unchanged. The status cards show the Status tab of the panel: they read it with the panel's own code (its module,
 // without showing it), as the sidebar icon does, so the three always agree. Administrators only, as the panel.
 
-var SYSTEM_HUB_CARD_VERSION = '2.10.1';
+var SYSTEM_HUB_CARD_VERSION = '2.10.2';
 var SH_CARD_MODULES = ['status', 'system', 'watchdog', 'marketplace', 'batteries', 'git_sync', 'automations', 'orphans'];
 var SH_MINI_MODULES = ['status', 'system', 'watchdog', 'batteries', 'git_sync', 'automations', 'orphans'];
 var SH_CARD_GROUPS = ['system', 'reliability', 'maintenance', 'devices'];
@@ -85,12 +85,12 @@ function shCardOpen(tab) {
 var SH_HUB_COLORS = { good: '#43a047', warn: '#f5a623', bad: '#e5484d', info: '#2f80ed' };
 var SH_HUB_LED = { good: '#43c463', warn: '#f5a623', bad: '#e5484d', info: '#43c463' };
 
-// Night picture: forced by illustration_theme, else the sun below the horizon or Home Assistant's dark mode (a day
-// picture on a dark card would glare).
+// Night picture: forced by illustration_theme, else Home Assistant's dark mode alone (a light theme keeps the day
+// picture after sunset; a day picture on a dark card would glare).
 function shHubIsNight(hass, config) {
   if (config?.illustration_theme === 'night') return true;
   if (config?.illustration_theme === 'day') return false;
-  return hass?.states?.['sun.sun']?.state === 'below_horizon' || !!hass?.themes?.darkMode;
+  return !!hass?.themes?.darkMode;
 }
 
 // The tone of each part of the picture: its Status area when the module is on (whatever groups the card shows),
@@ -515,7 +515,7 @@ class SystemHubCardEditorBase extends HTMLElement {
         { name: 'illustration', selector: { boolean: {} } },
         {
           name: 'illustration_theme',
-          selector: { select: { mode: 'dropdown', options: ['auto', 'day', 'night'].map((v) => ({ value: v, label: this._t(`card_theme_${v}`, { auto: 'Automatic (sun or dark theme)', day: 'Day', night: 'Night' }[v]) })) } },
+          selector: { select: { mode: 'dropdown', options: ['auto', 'day', 'night'].map((v) => ({ value: v, label: this._t(`card_theme_${v}`, { auto: 'Automatic (follows the theme)', day: 'Day', night: 'Night' }[v]) })) } },
         },
       );
       // The mini card shows only the summary and the areas to look at: these three change nothing there.
